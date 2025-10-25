@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>High / Low</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #162447;
+      color: #e1f5f2;
+      margin: 0;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .panel {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 25px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+    }
+    input, button, select {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: 16px;
+    }
+    input {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    button {
+      background: #e43f5a;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    .card {
+      font-size: 48px;
+      text-align: center;
+      margin: 20px 0;
+    }
+    .result {
+      min-height: 40px;
+      text-align: center;
+    }
+    a.back { color: #9df3c4; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div>Player: <span id="username"></span></div>
+      <div>Balance: <span id="balance">0</span> credits</div>
+    </div>
+    <a class="back" id="backLink" href="lobby.html">&larr; Back to Lobby</a>
+  </div>
+
+  <div class="panel">
+    <div class="card">Current card: <span id="currentCard">?</span></div>
+
+    <label for="guess">Your guess</label>
+    <select id="guess">
+      <option value="higher">Higher</option>
+      <option value="lower">Lower</option>
+    </select>
+
+    <label for="wager">Wager amount</label>
+    <input type="number" id="wager" value="50" min="1" />
+
+    <button id="playBtn">Play Round</button>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const username = params.get('u');
+    const usernameEl = document.getElementById('username');
+    const balanceEl = document.getElementById('balance');
+    const backLink = document.getElementById('backLink');
+    const currentCardEl = document.getElementById('currentCard');
+    const guessSelect = document.getElementById('guess');
+    const wagerInput = document.getElementById('wager');
+    const playBtn = document.getElementById('playBtn');
+    const resultEl = document.getElementById('result');
+
+    if (!username) {
+      window.location.href = 'lobby.html';
+    }
+
+    let currentCard = Math.ceil(Math.random() * 13);
+    let currentBalance = 0;
+
+    function updateBackLink() {
+      backLink.href = 'lobby.html?u=' + encodeURIComponent(username);
+    }
+
+    function showCard() {
+      currentCardEl.textContent = currentCard;
+    }
+
+    function fetchProfile() {
+      fetch('/api/profile?username=' + encodeURIComponent(username))
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            alert('Failed to load profile: ' + (data.error || 'Unknown error'));
+            return;
+          }
+          usernameEl.textContent = data.username;
+          currentBalance = data.balance;
+          balanceEl.textContent = currentBalance;
+          enforceWagerLimit();
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error loading profile.');
+        });
+    }
+
+    function enforceWagerLimit() {
+      const wager = parseInt(wagerInput.value, 10) || 0;
+      playBtn.disabled = wager <= 0 || wager > currentBalance;
+    }
+
+    function drawCard() {
+      return Math.ceil(Math.random() * 13);
+    }
+
+    function handlePlay() {
+      const wager = parseInt(wagerInput.value, 10);
+      const guess = guessSelect.value;
+      if (!wager || wager <= 0) {
+        alert('Enter a valid wager.');
+        return;
+      }
+      if (wager > currentBalance) {
+        alert('Insufficient credits.');
+        return;
+      }
+
+      playBtn.disabled = true;
+
+      fetch('/api/game/charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username,
+          game: 'highlow',
+          amount: wager,
+          desc: 'high/low bet'
+        })
+      })
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            if (data.error === 'INSUFFICIENT_FUNDS') {
+              alert('Not enough credits.');
+            } else {
+              alert('Bet failed: ' + (data.error || 'Unknown error'));
+            }
+            playBtn.disabled = false;
+            return;
+          }
+
+          currentBalance = data.balance;
+          balanceEl.textContent = currentBalance;
+
+          const nextCard = drawCard();
+          const win = (guess === 'higher' && nextCard > currentCard) ||
+                      (guess === 'lower' && nextCard < currentCard);
+          let payout = 0;
+          if (win) {
+            payout = wager * 2;
+          }
+
+          const summary = `You guessed ${guess.toUpperCase()}. Next card: ${nextCard}.`;
+
+          const finalize = (message) => {
+            resultEl.textContent = message;
+            currentCard = nextCard;
+            showCard();
+            enforceWagerLimit();
+            playBtn.disabled = false;
+          };
+
+          if (payout > 0) {
+            fetch('/api/game/payout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                username,
+                game: 'highlow',
+                amount: payout,
+                desc: 'high/low win'
+              })
+            })
+              .then(resp => resp.json())
+              .then(payoutData => {
+                if (!payoutData.ok) {
+                  finalize(summary + ' Error crediting winnings.');
+                  return;
+                }
+                currentBalance = payoutData.balance;
+                balanceEl.textContent = currentBalance;
+                finalize(summary + ` You win ${payout} credits!`);
+              })
+              .catch(err => {
+                console.error(err);
+                finalize(summary + ' Error crediting winnings.');
+              });
+          } else {
+            finalize(summary + ` You lose ${wager} credits.`);
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error placing bet.');
+          playBtn.disabled = false;
+        });
+    }
+
+    wagerInput.addEventListener('input', enforceWagerLimit);
+    playBtn.addEventListener('click', handlePlay);
+
+    usernameEl.textContent = username;
+    updateBackLink();
+    showCard();
+    fetchProfile();
+  </script>
+</body>
+</html>

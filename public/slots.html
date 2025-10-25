@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Slots</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #1b1b2f;
+      color: #f9f7f7;
+      margin: 0;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .panel {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 20px;
+      border-radius: 10px;
+      max-width: 500px;
+      margin: 0 auto;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+    }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: 16px;
+    }
+    input {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+    }
+    button {
+      background: #ff4d6d;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    .reels {
+      display: flex;
+      justify-content: center;
+      font-size: 48px;
+      margin: 20px 0;
+      gap: 20px;
+    }
+    .result {
+      text-align: center;
+      min-height: 40px;
+    }
+    a.back {
+      color: #6fffe9;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div>Player: <span id="username"></span></div>
+      <div>Balance: <span id="balance">0</span> credits</div>
+    </div>
+    <a class="back" id="backLink" href="lobby.html">&larr; Back to Lobby</a>
+  </div>
+
+  <div class="panel">
+    <label for="betPerLine">Bet per line</label>
+    <input type="number" id="betPerLine" value="10" min="1" />
+
+    <label for="lineCount">Number of lines</label>
+    <input type="number" id="lineCount" value="1" min="1" max="5" />
+
+    <button id="spinBtn">Spin</button>
+
+    <div class="reels" id="reels">🎲 🎲 🎲</div>
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const username = params.get('u');
+    const usernameEl = document.getElementById('username');
+    const balanceEl = document.getElementById('balance');
+    const backLink = document.getElementById('backLink');
+    const betPerLineInput = document.getElementById('betPerLine');
+    const lineCountInput = document.getElementById('lineCount');
+    const spinBtn = document.getElementById('spinBtn');
+    const reelsEl = document.getElementById('reels');
+    const resultEl = document.getElementById('result');
+
+    const symbols = ['🍒', '🍋', '🔔', '⭐', '7️⃣', '🍀'];
+    let currentBalance = 0;
+
+    if (!username) {
+      window.location.href = 'lobby.html';
+    }
+
+    function updateBackLink() {
+      backLink.href = 'lobby.html?u=' + encodeURIComponent(username);
+    }
+
+    function fetchProfile() {
+      fetch('/api/profile?username=' + encodeURIComponent(username))
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            alert('Failed to load profile: ' + (data.error || 'Unknown error'));
+            return;
+          }
+          usernameEl.textContent = data.username;
+          currentBalance = data.balance;
+          balanceEl.textContent = currentBalance;
+          enforceBetLimit();
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error loading profile.');
+        });
+    }
+
+    function enforceBetLimit() {
+      const totalCost = getTotalCost();
+      spinBtn.disabled = totalCost <= 0 || totalCost > currentBalance;
+    }
+
+    function getTotalCost() {
+      const betPerLine = parseInt(betPerLineInput.value, 10) || 0;
+      const lineCount = parseInt(lineCountInput.value, 10) || 0;
+      return betPerLine * lineCount;
+    }
+
+    function randomSymbol() {
+      return symbols[Math.floor(Math.random() * symbols.length)];
+    }
+
+    function handleSpin() {
+      const betPerLine = parseInt(betPerLineInput.value, 10);
+      const lineCount = parseInt(lineCountInput.value, 10);
+      const totalCost = betPerLine * lineCount;
+
+      if (!betPerLine || !lineCount || totalCost <= 0) {
+        alert('Please enter valid bet values.');
+        return;
+      }
+
+      if (totalCost > currentBalance) {
+        alert('Insufficient credits for that spin.');
+        return;
+      }
+
+      spinBtn.disabled = true;
+
+      fetch('/api/game/charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username,
+          game: 'slots',
+          amount: totalCost,
+          desc: `slots spin (${lineCount} lines @ ${betPerLine})`
+        })
+      })
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            if (data.error === 'INSUFFICIENT_FUNDS') {
+              alert('Not enough credits to spin.');
+            } else {
+              alert('Charge failed: ' + (data.error || 'Unknown error'));
+            }
+            spinBtn.disabled = false;
+            return;
+          }
+
+          currentBalance = data.balance;
+          balanceEl.textContent = currentBalance;
+          const spinResult = [randomSymbol(), randomSymbol(), randomSymbol()];
+          reelsEl.textContent = spinResult.join(' ');
+
+          let payout = 0;
+          if (spinResult[0] === spinResult[1] && spinResult[1] === spinResult[2]) {
+            payout = totalCost * 5;
+          }
+
+          if (payout > 0) {
+            fetch('/api/game/payout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                username,
+                game: 'slots',
+                amount: payout,
+                desc: `slots payout (${spinResult.join('')})`
+              })
+            })
+              .then(resp => resp.json())
+              .then(payoutData => {
+                if (!payoutData.ok) {
+                  resultEl.textContent = 'Error crediting payout.';
+                  return;
+                }
+                currentBalance = payoutData.balance;
+                balanceEl.textContent = currentBalance;
+                resultEl.textContent = `Jackpot! Won ${payout} credits on ${spinResult.join(' ')}`;
+              })
+              .catch(err => {
+                console.error(err);
+                resultEl.textContent = 'Error crediting payout.';
+              })
+              .finally(() => {
+                enforceBetLimit();
+                spinBtn.disabled = false;
+              });
+          } else {
+            resultEl.textContent = `No win this time. Lost ${totalCost} credits.`;
+            enforceBetLimit();
+            spinBtn.disabled = false;
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error placing bet.');
+          spinBtn.disabled = false;
+        });
+    }
+
+    betPerLineInput.addEventListener('input', enforceBetLimit);
+    lineCountInput.addEventListener('input', enforceBetLimit);
+    spinBtn.addEventListener('click', handleSpin);
+
+    usernameEl.textContent = username;
+    updateBackLink();
+    fetchProfile();
+  </script>
+</body>
+</html>

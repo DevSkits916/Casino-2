@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Coin Flip</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f3460;
+      color: #f8f8f8;
+      margin: 0;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .panel {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 25px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+    }
+    input, button, select {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: 16px;
+    }
+    input {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    button {
+      background: #ff6f61;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    .result {
+      min-height: 40px;
+      text-align: center;
+      font-size: 18px;
+    }
+    a.back { color: #9be3de; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div>Player: <span id="username"></span></div>
+      <div>Balance: <span id="balance">0</span> credits</div>
+    </div>
+    <a class="back" id="backLink" href="lobby.html">&larr; Back to Lobby</a>
+  </div>
+
+  <div class="panel">
+    <label for="choice">Choose heads or tails</label>
+    <select id="choice">
+      <option value="HEADS">HEADS</option>
+      <option value="TAILS">TAILS</option>
+    </select>
+
+    <label for="wager">Wager amount</label>
+    <input type="number" id="wager" value="25" min="1" />
+
+    <button id="flipBtn">Flip Coin</button>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const username = params.get('u');
+    const usernameEl = document.getElementById('username');
+    const balanceEl = document.getElementById('balance');
+    const backLink = document.getElementById('backLink');
+    const choiceSelect = document.getElementById('choice');
+    const wagerInput = document.getElementById('wager');
+    const flipBtn = document.getElementById('flipBtn');
+    const resultEl = document.getElementById('result');
+
+    if (!username) {
+      window.location.href = 'lobby.html';
+    }
+
+    let currentBalance = 0;
+
+    function updateBackLink() {
+      backLink.href = 'lobby.html?u=' + encodeURIComponent(username);
+    }
+
+    function enforceWagerLimit() {
+      const wager = parseInt(wagerInput.value, 10) || 0;
+      flipBtn.disabled = wager <= 0 || wager > currentBalance;
+    }
+
+    function fetchProfile() {
+      fetch('/api/profile?username=' + encodeURIComponent(username))
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            alert('Failed to load profile: ' + (data.error || 'Unknown error'));
+            return;
+          }
+          usernameEl.textContent = data.username;
+          currentBalance = data.balance;
+          balanceEl.textContent = currentBalance;
+          enforceWagerLimit();
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error loading profile.');
+        });
+    }
+
+    function randomCoin() {
+      return Math.random() < 0.5 ? 'HEADS' : 'TAILS';
+    }
+
+    function handleFlip() {
+      const wager = parseInt(wagerInput.value, 10);
+      if (!wager || wager <= 0) {
+        alert('Enter a valid wager.');
+        return;
+      }
+      if (wager > currentBalance) {
+        alert('Insufficient credits.');
+        return;
+      }
+
+      flipBtn.disabled = true;
+      resultEl.textContent = '';
+      const choice = choiceSelect.value;
+
+      fetch('/api/game/charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username,
+          game: 'coinflip',
+          amount: wager,
+          desc: `coin flip bet (${choice})`
+        })
+      })
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            if (data.error === 'INSUFFICIENT_FUNDS') {
+              alert('Not enough credits.');
+            } else {
+              alert('Bet failed: ' + (data.error || 'Unknown error'));
+            }
+            flipBtn.disabled = false;
+            return;
+          }
+
+          currentBalance = data.balance;
+          balanceEl.textContent = currentBalance;
+
+          const coin = randomCoin();
+          let message = `Coin: ${coin}. You chose ${choice}.`;
+          let payout = 0;
+          if (coin === choice) {
+            payout = wager * 2;
+          }
+
+          if (payout > 0) {
+            fetch('/api/game/payout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                username,
+                game: 'coinflip',
+                amount: payout,
+                desc: 'coin flip win'
+              })
+            })
+              .then(resp => resp.json())
+              .then(payoutData => {
+                if (!payoutData.ok) {
+                  resultEl.textContent = message + ' Error crediting winnings.';
+                  return;
+                }
+                currentBalance = payoutData.balance;
+                balanceEl.textContent = currentBalance;
+                resultEl.textContent = message + ` You win ${payout} credits!`;
+              })
+              .catch(err => {
+                console.error(err);
+                resultEl.textContent = message + ' Error crediting winnings.';
+              })
+              .finally(() => {
+                enforceWagerLimit();
+                flipBtn.disabled = false;
+              });
+          } else {
+            resultEl.textContent = message + ' You lose.';
+            enforceWagerLimit();
+            flipBtn.disabled = false;
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error placing bet.');
+          flipBtn.disabled = false;
+        });
+    }
+
+    wagerInput.addEventListener('input', enforceWagerLimit);
+    flipBtn.addEventListener('click', handleFlip);
+
+    usernameEl.textContent = username;
+    updateBackLink();
+    fetchProfile();
+  </script>
+</body>
+</html>

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #101820;
+      color: #fefefe;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .layout {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .panel {
+      flex: 1 1 300px;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+      max-height: 80vh;
+      overflow: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+    tr:hover {
+      background: rgba(255,255,255,0.1);
+      cursor: pointer;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+    input, textarea, button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 6px;
+      border-radius: 6px;
+      border: none;
+      font-size: 15px;
+    }
+    textarea {
+      min-height: 60px;
+    }
+    button {
+      background: #ff4f5a;
+      color: #fff;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
+    .history-entry {
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding: 8px 0;
+      font-size: 14px;
+    }
+    .history-entry:last-child {
+      border-bottom: none;
+    }
+    .muted { color: #cbd5e0; }
+  </style>
+</head>
+<body>
+  <h1>Admin Dashboard</h1>
+  <div class="layout">
+    <div class="panel" style="flex:1;">
+      <h2>Users</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Balance</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel" style="flex:2;">
+      <h2>User Detail</h2>
+      <div id="detail">
+        <p>Select a user to view details.</p>
+      </div>
+      <div id="history"></div>
+    </div>
+
+    <div class="panel" style="flex:1;">
+      <h2>Admin Actions</h2>
+      <div id="actions">
+        <p>Select a user first.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const userTableBody = document.getElementById('userTableBody');
+    const detailEl = document.getElementById('detail');
+    const historyEl = document.getElementById('history');
+    const actionsEl = document.getElementById('actions');
+
+    let selectedUser = null;
+
+    function fetchUsers() {
+      fetch('/api/admin/users')
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            alert('Failed to load users.');
+            return;
+          }
+          renderUserTable(data.users);
+          if (selectedUser) {
+            const exists = data.users.some(u => u.username === selectedUser);
+            if (!exists) {
+              selectedUser = null;
+              detailEl.innerHTML = '<p>User deleted or missing.</p>';
+              historyEl.innerHTML = '';
+              actionsEl.innerHTML = '<p>Select a user first.</p>';
+            }
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error loading users.');
+        });
+    }
+
+    function renderUserTable(users) {
+      userTableBody.innerHTML = '';
+      users.sort((a, b) => a.username.localeCompare(b.username));
+      users.forEach(user => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${user.username}</td><td>${user.balance}</td>`;
+        tr.addEventListener('click', () => selectUser(user.username));
+        userTableBody.appendChild(tr);
+      });
+    }
+
+    function selectUser(username) {
+      selectedUser = username;
+      loadUserDetail(username);
+      renderActions();
+    }
+
+    function loadUserDetail(username) {
+      detailEl.innerHTML = '<p>Loading...</p>';
+      historyEl.innerHTML = '';
+      fetch('/api/admin/user-detail?username=' + encodeURIComponent(username))
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            detailEl.innerHTML = '<p>Error loading user.</p>';
+            return;
+          }
+          detailEl.innerHTML = `
+            <p><strong>Username:</strong> ${data.username}</p>
+            <p><strong>Balance:</strong> ${data.balance} credits</p>
+          `;
+          renderHistory(data.history);
+        })
+        .catch(err => {
+          console.error(err);
+          detailEl.innerHTML = '<p>Error loading user.</p>';
+        });
+    }
+
+    function renderHistory(history) {
+      if (!history || history.length === 0) {
+        historyEl.innerHTML = '<p class="muted">No transactions yet.</p>';
+        return;
+      }
+      historyEl.innerHTML = '';
+      history.slice().reverse().forEach(entry => {
+        const div = document.createElement('div');
+        const delta = entry.delta >= 0 ? '+' + entry.delta : entry.delta;
+        div.className = 'history-entry';
+        div.innerHTML = `
+          <div><strong>${entry.game}</strong> &mdash; ${entry.desc}</div>
+          <div class="muted">${entry.ts}</div>
+          <div>Δ ${delta}</div>
+        `;
+        historyEl.appendChild(div);
+      });
+    }
+
+    function renderActions() {
+      if (!selectedUser) {
+        actionsEl.innerHTML = '<p>Select a user first.</p>';
+        return;
+      }
+      actionsEl.innerHTML = `
+        <label for="balanceInput">Set Balance</label>
+        <input type="number" id="balanceInput" min="0" placeholder="Enter new balance" />
+        <label for="noteInput">Note</label>
+        <textarea id="noteInput" placeholder="Reason for adjustment"></textarea>
+        <button id="setBalanceBtn">Apply Balance</button>
+        <hr />
+        <button id="deleteUserBtn" style="background:#e63946;">Delete User</button>
+      `;
+
+      document.getElementById('setBalanceBtn').addEventListener('click', () => {
+        const balanceVal = parseInt(document.getElementById('balanceInput').value, 10);
+        const noteVal = document.getElementById('noteInput').value.trim();
+        if (Number.isNaN(balanceVal) || balanceVal < 0) {
+          alert('Enter a valid balance.');
+          return;
+        }
+        fetch('/api/admin/set-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: selectedUser,
+            balance: balanceVal,
+            note: noteVal || 'admin adjustment'
+          })
+        })
+          .then(resp => resp.json())
+          .then(data => {
+            if (!data.ok) {
+              alert('Failed to set balance: ' + (data.error || 'Unknown error'));
+              return;
+            }
+            loadUserDetail(selectedUser);
+            fetchUsers();
+          })
+          .catch(err => {
+            console.error(err);
+            alert('Error setting balance.');
+          });
+      });
+
+      document.getElementById('deleteUserBtn').addEventListener('click', () => {
+        if (!confirm('Delete user ' + selectedUser + '? This cannot be undone.')) {
+          return;
+        }
+        fetch('/api/admin/delete-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: selectedUser })
+        })
+          .then(resp => resp.json())
+          .then(data => {
+            if (!data.ok) {
+              alert('Failed to delete user: ' + (data.error || 'Unknown error'));
+              return;
+            }
+            selectedUser = null;
+            detailEl.innerHTML = '<p>Select a user to view details.</p>';
+            historyEl.innerHTML = '';
+            actionsEl.innerHTML = '<p>Select a user first.</p>';
+            fetchUsers();
+          })
+          .catch(err => {
+            console.error(err);
+            alert('Error deleting user.');
+          });
+      });
+    }
+
+    fetchUsers();
+    setInterval(fetchUsers, 10000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "players": {
+    "alice": {
+      "balance": 1500,
+      "history": [
+        {
+          "ts": "2024-05-01T10:00:00.000Z",
+          "game": "admin-adjust",
+          "delta": 1500,
+          "desc": "initial load"
+        }
+      ]
+    },
+    "bob": {
+      "balance": 900,
+      "history": [
+        {
+          "ts": "2024-05-02T12:30:00.000Z",
+          "game": "admin-adjust",
+          "delta": 900,
+          "desc": "initial load"
+        }
+      ]
+    }
+  }
+}
