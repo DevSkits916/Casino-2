@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Casino Lobby</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0b132b;
+      color: #f0f4f8;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 30px;
+      border-radius: 12px;
+      width: 400px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    label,
+    input,
+    button,
+    a {
+      display: block;
+      width: 100%;
+      margin-bottom: 12px;
+    }
+    input,
+    button {
+      padding: 10px;
+      border-radius: 6px;
+      border: none;
+      font-size: 16px;
+    }
+    input {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    button {
+      background: #ff6b6b;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    .info {
+      margin: 15px 0;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+    }
+    .links a {
+      background: #1c2541;
+      text-decoration: none;
+      color: #f0f4f8;
+      text-align: center;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+    .links a.disabled {
+      background: #555;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Casino Lobby</h1>
+    <label for="username">Username</label>
+    <input id="username" type="text" placeholder="Enter your player name" />
+    <button id="loadBtn">Load Profile</button>
+
+    <div class="info" id="profileInfo" style="display:none;">
+      <div>Logged in as: <span id="currentUser"></span></div>
+      <div>Balance: <span id="currentBalance">0</span> credits</div>
+    </div>
+
+    <div class="links">
+      <a id="slotsLink" class="disabled" href="#">Play Slots</a>
+      <a id="highlowLink" class="disabled" href="#">Play High / Low</a>
+      <a id="coinflipLink" class="disabled" href="#">Play Coin Flip</a>
+    </div>
+
+    <button id="saveBtn" disabled>Save &amp; Exit</button>
+  </div>
+
+  <script>
+    const usernameInput = document.getElementById('username');
+    const loadBtn = document.getElementById('loadBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    const profileInfo = document.getElementById('profileInfo');
+    const currentUserEl = document.getElementById('currentUser');
+    const currentBalanceEl = document.getElementById('currentBalance');
+    const slotsLink = document.getElementById('slotsLink');
+    const highlowLink = document.getElementById('highlowLink');
+    const coinflipLink = document.getElementById('coinflipLink');
+
+    let currentUser = null;
+    let currentBalance = 0;
+
+    function updateLinks() {
+      if (!currentUser) {
+        [slotsLink, highlowLink, coinflipLink].forEach(link => {
+          link.classList.add('disabled');
+          link.href = '#';
+        });
+        saveBtn.disabled = true;
+        return;
+      }
+      const query = '?u=' + encodeURIComponent(currentUser);
+      slotsLink.href = 'slots.html' + query;
+      highlowLink.href = 'highlow.html' + query;
+      coinflipLink.href = 'coinflip.html' + query;
+      [slotsLink, highlowLink, coinflipLink].forEach(link => link.classList.remove('disabled'));
+      saveBtn.disabled = false;
+    }
+
+    function loadProfile(name) {
+      fetch('/api/profile?username=' + encodeURIComponent(name))
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            alert('Failed to load profile: ' + (data.error || 'Unknown error'));
+            return;
+          }
+          currentUser = data.username;
+          currentBalance = data.balance;
+          currentUserEl.textContent = currentUser;
+          currentBalanceEl.textContent = currentBalance;
+          profileInfo.style.display = 'block';
+          updateLinks();
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error loading profile.');
+        });
+    }
+
+    function saveProfile() {
+      if (!currentUser) return;
+      fetch('/api/profile/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser, balance: currentBalance })
+      })
+        .then(resp => resp.json())
+        .then(data => {
+          if (!data.ok) {
+            alert('Failed to save: ' + (data.error || 'Unknown error'));
+            return;
+          }
+          alert('Profile saved. See you next time!');
+          currentUser = null;
+          currentBalance = 0;
+          profileInfo.style.display = 'none';
+          updateLinks();
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error saving profile.');
+        });
+    }
+
+    loadBtn.addEventListener('click', () => {
+      const name = usernameInput.value.trim();
+      if (!name) {
+        alert('Please enter a username.');
+        return;
+      }
+      loadProfile(name);
+    });
+
+    saveBtn.addEventListener('click', saveProfile);
+
+    // Auto-load profile if ?u= is present
+    const params = new URLSearchParams(window.location.search);
+    const autoUser = params.get('u');
+    if (autoUser) {
+      usernameInput.value = autoUser;
+      loadProfile(autoUser);
+    }
+  </script>
+</body>
+</html>
